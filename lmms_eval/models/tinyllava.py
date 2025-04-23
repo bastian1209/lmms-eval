@@ -17,11 +17,12 @@ from lmms_eval.api.instance import Instance
 from lmms_eval.api.model import lmms
 from lmms_eval.api.registry import register_model
 from lmms_eval.utils import stop_sequences_criteria
+import json
 
 warnings.filterwarnings("ignore")
 
 from loguru import logger as eval_logger
-
+# from tinyllava.model import load_pretrained_model
 try:
     from tinyllava.data import ImagePreprocess, TextPreprocess
     from tinyllava.model import load_pretrained_model
@@ -77,6 +78,38 @@ class TinyLlava(lmms):
         self._image_processor = ImagePreprocess(self._image_processor, data_args)
         assert self._tokenizer.padding_side == "right", "Not sure but seems like `right` is a natural choice for padding?"
         self._text_processor = TextPreprocess(self._tokenizer, conv_mode)
+
+        from types import SimpleNamespace
+        with open('{}/model_arguments.json'.format(pretrained), 'r') as f:
+            model_arguments = json.load(f, object_hook=lambda d: SimpleNamespace(**d))
+
+        if model_arguments.ovs_type == 'proxyclip':
+            self._model.vision_tower._vision_tower.vision_self._model.init_vfm()
+            setattr(self._model.vision_tower._vision_tower.vision_self._model.encoder, 'learn_bg', False)
+            if model_arguments.learn_bg:
+                self._model.vision_tower._vision_tower.vision_self._model.encoder.learn_bg = True
+
+        setattr(self._model.vision_tower._vision_tower.vision_model, 'ovs_layer', model_arguments.mm_ovs_select_layer)
+            
+        if model_arguments.with_naive:
+            setattr(self._model.vision_tower._vision_tower.vision_model, 'with_naive', True)
+            setattr(self._model.vision_tower._vision_tower.vision_model, 'orig_layer', model_arguments.mm_vision_select_layer)
+            
+        if model_arguments.with_method:
+            setattr(self._model.vision_tower._vision_tower.vision_model, 'with_method', model_arguments.with_method)
+            
+        if model_arguments.gate_type:
+            setattr(self._model.vision_tower._vision_tower.vision_model, 'gate_type', model_arguments.gate_type)
+            
+        if model_arguments.ovs_type is not None:
+            setattr(self._model.vision_tower._vision_tower.vision_model, 'ovs_type', model_arguments.ovs_type)
+            
+        if model_arguments.ignore_residual:
+            setattr(self._model.vision_tower._vision_tower.vision_model, 'ignore_residual', model_arguments.ignore_residual)
+            
+        if model_arguments.use_rcs:
+            setattr(self._model.vision_tower._vision_tower.vision_model, 'use_rcs', model_arguments.use_rcs)
+
 
         self._config = self._model.config
         self.model.eval()
